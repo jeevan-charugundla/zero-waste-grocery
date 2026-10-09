@@ -1,0 +1,54 @@
+/* Freshwise — design tokens + base styles.
+   Complements Tailwind's default utilities; keeps the visual identity
+   stable so components don't hardcode hex codes everywhere. */
+
+:root {
+  /* Brand greens */
+  --freshwise-green-500: #227952;
+  --freshwise-green-600: #1b6143;
+  --freshwise-green-700: #174e37;
+  --freshwise-green-50: #eaf6ef;
+  --freshwise-green-100: #d6efdf;
+
+  /* Warm neutrals */
+  --freshwise-bg: #f7f6f2;
+  --freshwise-surface: #ffffff;
+  --freshwise-border: #e6e8e3;
+  --freshwise-border-strong: #d7dad3;
+  --freshwise-text: #25332c;
+  --freshwise-text-soft: #5c6b62;
+  --freshwise-text-muted: #889390;
+
+  /* Feedback hues */
+  --freshwise-amber: #b17a30;
+  --freshwise-amber-bg: #fdf4e5;
+  --freshwise-amber-border: #f0dfc0;
+  --freshwise-red: #b45e48;
+  --freshwise-red-bg: #fdf1ee;
+  --freshwise-red-border: #f2d8d0;
+  --freshwise-violet: #816ac1;
+  --freshwise-violet-bg: #f1edff;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--freshwise-text);
+  background: var(--freshwise-bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+*:focus-visible {
+  outline: 2px solid var(--freshwise-green-500);
+  outline-offset: 2px;
+}
+
+/* Recharts text reads better slightly muted */
+.recharts-wrapper text {
+  font-size: 11px;
+}
