@@ -1,6 +1,35 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL !== undefined && import.meta.env.VITE_API_BASE_URL !== ""
+    ? import.meta.env.VITE_API_BASE_URL
+    : (import.meta.env.DEV ? "http://127.0.0.1:8000" : "");
 
-// ── Health ───────────────────────────────────────────────────────────────────
+export type ApiStatusState =
+  | { state: "checking" }
+  | { state: "connected" }
+  | { state: "unavailable"; reason: string };
+
+export function describeApiTarget(): string {
+  if (!API_BASE) {
+    return typeof window !== "undefined" ? (window.location.host || "same-origin") : "same-origin";
+  }
+  try {
+    const url = new URL(API_BASE);
+    return url.host || API_BASE;
+  } catch {
+    return API_BASE;
+  }
+}
+
+export function explainHealthError(err: unknown): string {
+  const target = API_BASE || "the backend API";
+  if (err instanceof Error) {
+    if (err.message.includes("Failed to fetch") || err.message.includes("NetworkError")) {
+      return `Cannot connect to backend server at ${target}. Make sure the backend server is running.`;
+    }
+    return err.message;
+  }
+  return "Unknown connection error";
+}
 
 export async function getHealth() {
   const response = await fetch(`${API_BASE}/health`);

@@ -126,7 +126,7 @@ export default function OverviewPage({
             before today's close.
           </p>
         </div>
-        <PrimaryButton onClick={() => onNavigate("recommendations")}>
+        <PrimaryButton onClick={() => onNavigate("decision_room")}>
           Review now →
         </PrimaryButton>
       </div>
@@ -282,7 +282,7 @@ export default function OverviewPage({
           title="Recommendations awaiting manager review"
           subtitle="Illustrative proposals only — no actions have been executed"
           action={
-            <GhostButton onClick={() => onNavigate("recommendations")}>
+            <GhostButton onClick={() => onNavigate("decision_room")}>
               View all 4 →
             </GhostButton>
           }
@@ -294,7 +294,7 @@ export default function OverviewPage({
               desc="20 units expire tomorrow · expected demand is below batch quantity."
               tag="Markdown"
               value="15% off"
-              onReview={() => onNavigate("recommendations")}
+              onReview={() => onNavigate("decision_room")}
             />
             <RecRow
               tone="green"
@@ -302,7 +302,7 @@ export default function OverviewPage({
               desc="Surplus at Store North · receiving store has forecasted demand."
               tag="Transfer"
               value="18 units"
-              onReview={() => onNavigate("recommendations")}
+              onReview={() => onNavigate("decision_room")}
             />
             <RecRow
               tone="violet"
@@ -310,7 +310,7 @@ export default function OverviewPage({
               desc="Current stock and inbound receipt may exceed expected demand."
               tag="Replenish"
               value="−12 units"
-              onReview={() => onNavigate("recommendations")}
+              onReview={() => onNavigate("decision_room")}
             />
           </div>
         </Panel>

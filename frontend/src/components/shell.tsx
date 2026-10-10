@@ -1,73 +1,44 @@
-import { useState, useCallback, useEffect, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
-  ChevronDown,
   Menu,
   X,
   Bell,
-  Wifi,
-  WifiOff,
-  RotateCw,
-  LogOut,
-  Settings,
+  Search,
+  Calendar,
+  Sparkles,
 } from "lucide-react";
-import { DemoBadge } from "./ui";
 import { type RouteId, ROUTES } from "./routes";
-import { getHealth, explainHealthError, describeApiTarget, type ApiStatusState } from "../lib/api";
-
-const recBadge: Partial<Record<RouteId, number>> = {
-  recommendations: 4,
-};
 
 export function AppShell({
   active,
   onNavigate,
+  searchQuery,
+  onSearchChange,
   children,
 }: {
   active: RouteId;
   onNavigate: (id: RouteId) => void;
+  searchQuery: string;
+  onSearchChange: (q: string) => void;
   children: ReactNode;
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [apiStatus, setApiStatus] = useState<ApiStatusState>({
-    state: "checking",
-  });
-
-  const runHealthCheck = useCallback((force = false) => {
-    if (!force && apiStatus.state === "checking") return; // already in flight
-    setApiStatus({ state: "checking" });
-    getHealth()
-      .then(() => setApiStatus({ state: "connected" }))
-      .catch((err: unknown) => {
-        const reason = explainHealthError(err);
-        setApiStatus({ state: "unavailable", reason });
-      });
-  }, [apiStatus.state]);
-
-  const onRetry = useCallback(() => runHealthCheck(true), [runHealthCheck]);
-
-  useEffect(() => {
-    runHealthCheck();
-    // No auto-retry loop: the user gets an explicit Retry button instead.
-  }, [runHealthCheck]);
-
-  const activeLabel = ROUTES.find((r) => r.id === active)?.label ?? "Overview";
+  const activeRoute = ROUTES.find((r) => r.id === active) || ROUTES[2];
 
   return (
-    <div className="flex min-h-screen bg-[#f7f7f4]">
-      {/* Desktop sidebar */}
+    <div className="flex min-h-screen bg-[#f4f7f4]">
+      {/* Desktop Dark Forest Sidebar */}
       <Sidebar
         active={active}
         onNavigate={onNavigate}
-        apiStatus={apiStatus}
         className="hidden lg:flex"
-        onRetry={onRetry}
       />
 
-      {/* Mobile drawer */}
+      {/* Mobile Drawer */}
       {drawerOpen && (
-        <div className="fixed inset-0 z-40 lg:hidden">
+        <div className="fixed inset-0 z-50 lg:hidden">
           <div
-            className="absolute inset-0 bg-black/30"
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
             onClick={() => setDrawerOpen(false)}
             aria-hidden
           />
@@ -77,116 +48,95 @@ export function AppShell({
               onNavigate(id);
               setDrawerOpen(false);
             }}
-            apiStatus={apiStatus}
-            className="absolute inset-y-0 left-0 flex w-[265px] shadow-xl"
+            className="absolute inset-y-0 left-0 flex w-[280px] shadow-2xl"
             onClose={() => setDrawerOpen(false)}
-            onRetry={onRetry}
           />
         </div>
       )}
 
-      {/* Main column */}
+      {/* Main Content Column */}
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar
-          activeLabel={activeLabel}
+          activeLabel={activeRoute.label}
           onMenu={() => setDrawerOpen(true)}
-          notifications={4}
+          searchQuery={searchQuery}
+          onSearchChange={onSearchChange}
         />
-        <main className="flex-1">{children}</main>
+        <main className="flex-1 px-4 py-6 sm:px-8 max-w-[1600px] w-full mx-auto">
+          {children}
+        </main>
       </div>
     </div>
   );
 }
 
-/* ---------- Sidebar ---------- */
+/* ---------- Sidebar (Dark Forest Theme from Screenshot) ---------- */
 
 function Sidebar({
   active,
   onNavigate,
-  apiStatus,
   className = "",
   onClose,
-  onRetry,
 }: {
   active: RouteId;
   onNavigate: (id: RouteId) => void;
-  apiStatus: ApiStatusState;
   className?: string;
   onClose?: () => void;
-  onRetry: () => void;
 }) {
   return (
     <aside
-      className={`w-[248px] shrink-0 flex-col border-r border-[#e9ece7] bg-white py-5 px-3.5 ${className}`}
-      aria-label="Primary navigation"
+      className={`w-[260px] shrink-0 flex-col bg-[#071d15] text-[#9fb3a7] py-6 px-4 select-none ${className}`}
+      aria-label="FreshMind AI Navigation"
     >
-      {/* Brand */}
-      <div className="mb-6 flex items-center gap-2.5 px-2">
-        <div className="grid h-9 w-9 place-items-center rounded-xl bg-[#287452] text-lg font-extrabold text-white">
-          <span className="font-serif">f</span>
+      {/* Brand Header */}
+      <div className="mb-7 flex items-center justify-between px-2">
+        <div className="flex items-center gap-3">
+          {/* Mint Leaf Icon Badge */}
+          <div className="grid h-9 w-9 place-items-center rounded-full bg-[#10b981] text-[#071d15] shadow-md shadow-[#10b981]/20">
+            <Sparkles size={18} className="fill-current" />
+          </div>
+          <div>
+            <strong className="block text-[16px] font-extrabold tracking-tight text-white">
+              FreshMind AI
+            </strong>
+            <span className="block text-[8.5px] font-bold tracking-[0.18em] text-[#34d399]">
+              ZERO-WASTE OS
+            </span>
+          </div>
         </div>
-        <div className="min-w-0 flex-1">
-          <strong className="block text-[17px] leading-none tracking-tight text-[#25332c]">
-            freshwise
-          </strong>
-          <small className="mt-1 block text-[8px] font-bold tracking-[0.14em] text-[#8b968e]">
-            ZERO-WASTE INTELLIGENCE
-          </small>
-        </div>
+
         {onClose && (
           <button
             onClick={onClose}
-            className="rounded-md p-1 text-[#8b968e] hover:bg-[#f7f8f5] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#227952]"
-            aria-label="Close navigation"
+            className="rounded-lg p-1 text-[#62776c] hover:bg-[#123828] hover:text-white"
+            aria-label="Close sidebar"
           >
-            <X size={16} />
+            <X size={18} />
           </button>
         )}
       </div>
 
-      {/* Workspace selector */}
-      <button
-        className="mb-6 flex w-full items-center gap-2.5 rounded-xl border border-[#e9ece7] bg-[#f8f9f6] px-3 py-2.5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#227952]/40"
-        aria-label="Workspace: Demo Grocery Network, press to switch workspace"
-      >
-        <span className="h-2 w-2 shrink-0 rounded-full bg-[#37866a]" />
-        <div className="min-w-0 flex-1">
-          <small className="block text-[9px] font-bold tracking-widest text-[#8a958d]">
-            WORKSPACE
-          </small>
-          <strong className="block text-[11px] text-[#39473d]">
-            Demo Grocery Network
-          </strong>
-        </div>
-        <ChevronDown size={13} className="shrink-0 text-[#8a958d]" />
-      </button>
-
-      {/* Nav */}
-      <nav className="mb-6 flex flex-col gap-1">
-        <p className="px-3 pb-1.5 text-[9px] font-bold tracking-[0.14em] text-[#a0a9a1]">
-          OPERATIONS
-        </p>
-        {ROUTES.map(({ id, label, icon: Icon }) => {
+      {/* Nav List */}
+      <nav className="flex flex-col gap-1">
+        {ROUTES.map(({ id, label, icon: Icon, badge }) => {
           const isActive = id === active;
-          const badge = recBadge[id];
           return (
             <button
               key={id}
               onClick={() => onNavigate(id)}
-              aria-current={isActive ? "page" : undefined}
-              className={`group flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[12.5px] transition ${
+              className={`group flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-[13px] font-medium transition ${
                 isActive
-                  ? "bg-[#eaf4ed] font-bold text-[#216b4a] shadow-[inset_2px_0_0_#287452]"
-                  : "font-medium text-[#66736a] hover:bg-[#f7f8f5]"
-              } focus:outline-none focus-visible:ring-2 focus-visible:ring-[#227952]/40`}
+                  ? "bg-[#123828] font-bold text-white shadow-sm ring-1 ring-[#1b523b]"
+                  : "text-[#8a9f93] hover:bg-[#0c2a1e] hover:text-[#d3e5db]"
+              }`}
             >
               <Icon
-                size={16}
-                className={isActive ? "text-[#287452]" : "text-[#7d8a80] group-hover:text-[#287452]"}
+                size={17}
+                className={isActive ? "text-[#34d399]" : "text-[#657d70] group-hover:text-[#a0b8ab]"}
               />
               <span className="min-w-0 flex-1 truncate">{label}</span>
               {badge !== undefined && (
-                <span className="ml-auto rounded-md bg-[#d3e8d8] px-1.5 py-0.5 text-[10px] font-bold text-[#236a4b]">
+                <span className="ml-auto rounded-full bg-[#10b981] px-2 py-0.5 text-[10.5px] font-bold text-[#071d15]">
                   {badge}
                 </span>
               )}
@@ -195,110 +145,25 @@ function Sidebar({
         })}
       </nav>
 
-      <div className="mt-auto flex flex-col">
-        <SidebarStatus
-          apiStatus={apiStatus}
-          onRetry={onRetry}
-        />
-
-        {/* User */}
-        <div className="flex items-center gap-2.5 px-1 pb-1">
-          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#e7e9de] text-[10px] font-bold text-[#56634f]">
-            JM
+      {/* Bottom Demo Network Badge */}
+      <div className="mt-auto pt-6">
+        <div className="rounded-2xl border border-[#143b2a] bg-[#0c271c] p-3.5 text-left">
+          <div className="flex items-center gap-2 text-xs font-bold text-white">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#34d399] opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-[#10b981]" />
+            </span>
+            <span>Demo mode</span>
           </div>
-          <div className="min-w-0 flex-1">
-            <strong className="block text-[11px] text-[#39473d]">Jordan Miller</strong>
-            <small className="block text-[9.5px] text-[#8a958d]">Store manager · Demo</small>
-          </div>
-          <button
-            className="rounded-md p-1 text-[#8a958d] hover:bg-[#f7f8f5] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#227952]"
-            aria-label="Sign out (demo only, no action)"
-            tabIndex={-1}
-          >
-            <LogOut size={13} />
-          </button>
-          <button
-            className="rounded-md p-1 text-[#8a958d] hover:bg-[#f7f8f5] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#227952]"
-            aria-label="Settings (demo only, no action)"
-            tabIndex={-1}
-          >
-            <Settings size={13} />
-          </button>
+          <p className="mt-1 text-[11px] font-medium text-[#7fa391]">
+            Hyderabad Demo Network
+          </p>
+          <p className="mt-0.5 text-[9.5px] text-[#557563]">
+            Synthetic data · agents simulated
+          </p>
         </div>
       </div>
     </aside>
-  );
-}
-
-/* ---------- Sidebar API status indicator ---------- */
-
-function SidebarStatus({
-  apiStatus,
-  onRetry,
-}: {
-  apiStatus: ApiStatusState;
-  onRetry: () => void;
-}) {
-  const [showDetail, setShowDetail] = useState(false);
-  const apiTarget = describeApiTarget();
-
-  const icon =
-    apiStatus.state === "connected" ? (
-      <Wifi size={13} className="text-green-600" aria-hidden />
-    ) : apiStatus.state === "checking" ? (
-      <span className="h-3.5 w-3.5 animate-pulse rounded-full bg-stone-300" aria-hidden />
-    ) : (
-      <WifiOff size={13} className="text-stone-400" aria-hidden />
-  );
-
-  const headline =
-    apiStatus.state === "connected"
-      ? "API connected"
-      : apiStatus.state === "checking"
-        ? "Checking API…"
-        : "API unavailable";
-
-  const subline =
-    apiStatus.state === "connected"
-      ? /* Health has no DB knowledge */ `FastAPI at ${apiTarget}`
-      : apiStatus.state === "checking"
-        ? `FastAPI at ${apiTarget}`
-        : "Supabase status unknown · click to retry";
-
-  return (
-    <div className="mb-2.5 border-t border-[#edf0eb] px-1 pt-3 pb-2">
-      <div className="flex items-center gap-2.5">
-        {icon}
-        <div className="min-w-0 flex-1">
-          <strong className="block text-[10.5px] text-[#39473d]">{headline}</strong>
-          <small className="block text-[9.5px] text-[#8a958d]">{subline}</small>
-        </div>
-        <button
-          onClick={() => { onRetry(); setShowDetail(false); }}
-          className="rounded-md p-1 text-[#8a958d] hover:bg-[#f7f8f5] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#227952]"
-          aria-label="Retry API connection check"
-          title="Retry health check"
-        >
-          <RotateCw size={12} className={apiStatus.state === "checking" ? "animate-spin" : ""} />
-    </button>
-      </div>
-      {apiStatus.state === "unavailable" && (
-        <button
-          onClick={() => setShowDetail((v) => !v)}
-          className="mt-1.5 block text-left text-[9.5px] font-semibold text-[#b17a30] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#227952]"
-          aria-expanded={showDetail}
-          aria-controls="api-status-detail"
-          title="Show/hide connection diagnostic"
-        >
-          {showDetail ? "Hide details" : "Why? Show details"}
-        </button>
-      )}
-      {apiStatus.state === "unavailable" && showDetail && (
-        <p id="api-status-detail" className="mt-1 rounded-md bg-[#fdf4e5] px-2 py-1.5 text-[9.5px] leading-relaxed text-[#7a5a20]">
-          {apiStatus.reason}
-        </p>
-      )}
-    </div>
   );
 }
 
@@ -307,39 +172,80 @@ function SidebarStatus({
 function Topbar({
   activeLabel,
   onMenu,
-  notifications,
+  searchQuery,
+  onSearchChange,
 }: {
   activeLabel: string;
   onMenu: () => void;
-  notifications: number;
+  searchQuery: string;
+  onSearchChange: (q: string) => void;
 }) {
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-3 border-b border-[#e8ece6] bg-white/90 px-4 backdrop-blur-sm sm:px-6">
-      <div className="flex min-w-0 items-center gap-2.5">
+    <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b border-[#e1e7e1] bg-white/95 px-4 backdrop-blur-md sm:px-8">
+      {/* Left: Menu trigger & Breadcrumb */}
+      <div className="flex items-center gap-3 min-w-0">
         <button
           onClick={onMenu}
-          className="rounded-md p-1.5 text-[#5c6b62] hover:bg-[#f7f8f5] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#227952] lg:hidden"
+          className="rounded-lg p-1.5 text-[#4a5f52] hover:bg-[#f0f4f0] lg:hidden"
           aria-label="Open navigation menu"
         >
-          <Menu size={18} />
+          <Menu size={20} />
         </button>
-        <span className="hidden text-[11px] text-[#8a958d] sm:inline">Workspace</span>
-        <ChevronDown size={11} className="hidden rotate-[-90deg] text-[#c2c9c1] sm:inline" />
-        <strong className="truncate text-[12px] font-semibold text-[#39473d]">
-          {activeLabel}
-        </strong>
+
+        <div className="min-w-0">
+          <span className="hidden text-[11px] font-semibold tracking-wide text-[#7d9285] sm:inline">
+            FreshMind / {activeLabel}
+          </span>
+          <strong className="block text-[13px] font-bold text-[#1b2c22] sm:hidden">
+            {activeLabel}
+          </strong>
+        </div>
       </div>
-      <div className="flex items-center gap-3">
-        <DemoBadge />
+
+      {/* Center: Search input */}
+      <div className="flex-1 max-w-md mx-2">
+        <div className="relative">
+          <Search
+            size={15}
+            className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#8b9e93]"
+          />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder="Search products or SKU..."
+            className="w-full rounded-full border border-[#d6dfd6] bg-[#f8faf8] py-1.5 pl-9 pr-4 text-xs text-[#203227] placeholder-[#8b9e93] transition focus:border-[#10b981] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#10b981]/20"
+          />
+        </div>
+      </div>
+
+      {/* Right Controls */}
+      <div className="flex items-center gap-2.5 sm:gap-3">
+        {/* Sim date badge */}
+        <div className="hidden sm:flex items-center gap-1.5 rounded-full border border-[#dce4dc] bg-[#f7faf7] px-3 py-1 text-[11px] font-medium text-[#465b4f]">
+          <Calendar size={13} className="text-[#647c6d]" />
+          <span>Sim date: 9 Oct 2026</span>
+        </div>
+
+        {/* DEMO amber pill */}
+        <span className="rounded-full bg-[#fef3c7] px-2.5 py-0.5 text-[10.5px] font-bold text-[#b45309]">
+          DEMO
+        </span>
+
+        {/* Notifications Bell */}
         <button
-          className="relative rounded-md p-1.5 text-[#68756c] hover:bg-[#f7f8f5] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#227952]"
-          aria-label={`Notifications, ${notifications} unread`}
+          className="relative rounded-full p-2 text-[#465b4f] hover:bg-[#f0f4f0] transition"
+          aria-label="5 unread notifications"
         >
-          <Bell size={16} />
-          <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-red-500" />
+          <Bell size={17} />
+          <span className="absolute right-1 top-1 grid h-4 w-4 place-items-center rounded-full bg-[#ef4444] text-[9.5px] font-bold text-white">
+            5
+          </span>
         </button>
-        <div className="hidden h-8 w-8 shrink-0 place-items-center rounded-full bg-[#e7e9de] text-[10px] font-bold text-[#56634f] sm:grid">
-          JM
+
+        {/* User avatar MA */}
+        <div className="grid h-8 w-8 place-items-center rounded-full bg-[#1b2c22] text-[11px] font-bold text-white shadow-sm">
+          MA
         </div>
       </div>
     </header>

@@ -1,56 +1,64 @@
 import { useState } from "react";
 import { AppShell } from "./components/shell";
 import type { RouteId } from "./components/routes";
+import DecisionRoomPage from "./pages/DecisionRoomPage";
 import OverviewPage from "./pages/OverviewPage";
 import InventoryPage from "./pages/InventoryPage";
-import ForecastsPage from "./pages/ForecastsPage";
-import RecommendationsPage from "./pages/RecommendationsPage";
-import BundlesPage from "./pages/BundlesPage";
-import CampaignsPage from "./pages/CampaignsPage";
+import StoreNetworkPage from "./pages/StoreNetworkPage";
 import DonationsPage from "./pages/DonationsPage";
-import CopilotPage from "./pages/CopilotPage";
+import CrisisArenaPage from "./pages/CrisisArenaPage";
 import ImpactPage from "./pages/ImpactPage";
+import ActivityApprovalsPage from "./pages/ActivityApprovalsPage";
+import SettingsPage from "./pages/SettingsPage";
 import "./styles/globals.css";
 
 export default function App() {
-  const [active, setActive] = useState<RouteId>("overview");
+  const [active, setActive] = useState<RouteId>("decision_room");
+  const [searchQuery, setSearchQuery] = useState("");
   const [navKey, setNavKey] = useState(0);
 
   const navigate = (id: RouteId) => {
     setActive(id);
-    setNavKey((k) => k + 1); // remount page content on section change
+    setNavKey((k) => k + 1);
   };
 
   const page = (() => {
     switch (active) {
+      case "decision_room":
+        return <DecisionRoomPage searchQuery={searchQuery} />;
       case "overview":
         return <OverviewPage onNavigate={navigate} />;
       case "inventory":
         return <InventoryPage />;
-      case "forecasts":
-        return <ForecastsPage />;
-      case "recommendations":
-        return <RecommendationsPage />;
-      case "bundles":
-        return <BundlesPage />;
-      case "campaigns":
-        return <CampaignsPage />;
-      case "donations":
+      case "store_network":
+        return <StoreNetworkPage />;
+      case "food_rescue":
         return <DonationsPage />;
-      case "copilot":
-        return <CopilotPage />;
-      case "impact":
+      case "crisis_arena":
+        return <CrisisArenaPage />;
+      case "analytics":
         return <ImpactPage />;
+      case "activity":
+        return <ActivityApprovalsPage />;
+      case "settings":
+        return <SettingsPage />;
+      default:
+        return <DecisionRoomPage searchQuery={searchQuery} />;
     }
   })();
 
   return (
-    <AppShell active={active} onNavigate={navigate}>
-      <div key={navKey} className="mx-auto max-w-[1500px] px-4 pb-10 pt-6 sm:px-6">
+    <AppShell
+      active={active}
+      onNavigate={navigate}
+      searchQuery={searchQuery}
+      onSearchChange={setSearchQuery}
+    >
+      <div key={navKey} className="w-full pb-10">
         {page}
-        <footer className="mt-8 flex flex-col gap-1 border-t border-[#e8ece6] pt-4 text-[10px] text-[#9aa39b] sm:flex-row sm:justify-between">
-          <span>Freshwise · Agentic AI for perishable inventory</span>
-          <span>Demo workspace — replace illustrative values with validated backend results.</span>
+        <footer className="mt-12 flex flex-col gap-1 border-t border-[#e2e7e2] pt-4 text-[11px] text-[#7a8e81] sm:flex-row sm:justify-between">
+          <span>FreshMind AI · Zero-Waste OS · Hyderabad Demo Network</span>
+          <span>Agent simulation deterministic mode — pure UI preview.</span>
         </footer>
       </div>
     </AppShell>
