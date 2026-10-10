@@ -4,6 +4,7 @@ Proactive Reminder System for Telegram Bot.
 Dispatches scheduled store briefings, critical expiry alerts, stockout warnings,
 and pending recommendation notifications using the demo data store with
 timezone awareness, quiet hours, and duplicate alert suppression.
+Formatted cleanly in Telegram HTML with emojis and zero random asterisks.
 """
 
 from __future__ import annotations
@@ -13,6 +14,8 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
+from telegram import constants
+
 from app.config import get_settings
 from app.telegram.auth import get_all_authorized_users
 from app.telegram.data_service import (
@@ -21,6 +24,7 @@ from app.telegram.data_service import (
     get_stockout_risks,
     get_store_summary,
 )
+from app.telegram.formatter import clean_telegram_text, strip_all_tags
 
 logger = logging.getLogger("freshwise.telegram.reminders")
 
@@ -47,6 +51,31 @@ def _is_quiet_hours(now_local: datetime) -> bool:
         return current_hour >= start or current_hour < end
     else:
         return start <= current_hour < end
+
+
+async def _safe_send_alert(bot: Any, chat_id: int, text: str) -> bool:
+    """Send alert using clean HTML with plain text fallback."""
+    cleaned = clean_telegram_text(text)
+    try:
+        await bot.send_message(
+            chat_id=chat_id,
+            text=cleaned,
+            parse_mode=constants.ParseMode.HTML,
+        )
+        return True
+    except Exception as exc:
+        logger.warning("Failed to send alert via HTML (%s). Retrying plain text.", exc)
+        try:
+            plain = strip_all_tags(text)
+            await bot.send_message(
+                chat_id=chat_id,
+                text=plain,
+                parse_mode=None,
+            )
+            return True
+        except Exception as fb_exc:
+            logger.error("Failed to send plain text alert to %d: %s", chat_id, fb_exc)
+            return False
 
 
 async def check_and_send_reminders(bot: Any) -> int:
@@ -82,22 +111,19 @@ async def check_and_send_reminders(bot: Any) -> int:
             try:
                 s = get_store_summary(store_id)
                 briefing_msg = (
-                    f"🌅 *Morning Store Briefing — {s['store_name']}* *(Demo)*\n"
+                    f"🌅 <b>Morning Store Briefing — {s['store_name']}</b> <i>(Demo)</i>\n"
                     f"📅 {today_str}\n\n"
-                    f"📦 *Active Inventory:* `{s['total_units_on_hand']}` units in `{s['total_batches']}` batches\n"
-                    f"⏰ *Expiry Watch (<=3 days):* `{s['expiring_soon_count']}` batches\n"
-                    f"💡 *Recommendations to Review:* `{s['open_recommendations_count']}`\n"
-                    f"📈 *7-Day Sales:* `{s['sales_units_7d']}` units\n\n"
-                    "👉 Run `/summary` or `/recommendations` to manage your store."
+                    f"📦 <b>Active Inventory:</b> <code>{s['total_units_on_hand']}</code> units in <code>{s['total_batches']}</code> batches\n"
+                    f"⏰ <b>Expiry Watch (≤3 days):</b> <code>{s['expiring_soon_count']}</code> batches\n"
+                    f"💡 <b>Recommendations to Review:</b> <code>{s['open_recommendations_count']}</code> items\n"
+                    f"📈 <b>7-Day Sales:</b> <code>{s['sales_units_7d']}</code> units\n\n"
+                    "👉 Run /summary or /recommendations to take quick action."
                 )
-                await bot.send_message(
-                    chat_id=user.user_id,
-                    text=briefing_msg,
-                    parse_mode="Markdown",
-                )
-                _ALERT_DEDUP_CACHE.add(briefing_key)
-                dispatched_count += 1
-                logger.info("Sent morning briefing to user %d", user.user_id)
+                sent = await _safe_send_alert(bot, user.user_id, briefing_msg)
+                if sent:
+                    _ALERT_DEDUP_CACHE.add(briefing_key)
+                    dispatched_count += 1
+                    logger.info("Sent morning briefing to user %d", user.user_id)
             except Exception as exc:
                 logger.error("Failed to send morning briefing to %d: %s", user.user_id, exc)
 
@@ -113,21 +139,18 @@ async def check_and_send_reminders(bot: Any) -> int:
                 days_left = b.get("days_left", "?")
                 urgency_str = "EXPIRES TODAY/TOMORROW" if days_left in (0, 1) else f"expires in {days_left} days"
                 alert_text = (
-                    f"🚨 *CRITICAL EXPIRY ALERT* *(Demo)*\n\n"
-                    f"• *Product:* {b['product_name']} (`{b['sku']}`)\n"
-                    f"• *Batch:* `{b['batch_code']}`\n"
-                    f"• *Quantity on Hand:* `{b['quantity_on_hand']}` units\n"
-                    f"• *Expiry Date:* `{b['expiry_date']}` ({urgency_str})\n\n"
-                    "👉 Check `/recommendations` to review markdown pricing or donation routing."
+                    "🚨 <b>CRITICAL EXPIRY ALERT</b> <i>(Demo)</i>\n\n"
+                    f"• <b>Product:</b> {b['product_name']} (<code>{b['sku']}</code>)\n"
+                    f"• <b>Batch:</b> <code>{b['batch_code']}</code>\n"
+                    f"• <b>Quantity:</b> <code>{b['quantity_on_hand']}</code> units\n"
+                    f"• <b>Expiry Date:</b> <code>{b['expiry_date']}</code> ({urgency_str})\n\n"
+                    "👉 Tap /recommendations to review markdown pricing or donation routing."
                 )
-                await bot.send_message(
-                    chat_id=user.user_id,
-                    text=alert_text,
-                    parse_mode="Markdown",
-                )
-                _ALERT_DEDUP_CACHE.add(exp_key)
-                dispatched_count += 1
-                logger.info("Sent urgent expiry alert for batch %s to user %d", batch_id, user.user_id)
+                sent = await _safe_send_alert(bot, user.user_id, alert_text)
+                if sent:
+                    _ALERT_DEDUP_CACHE.add(exp_key)
+                    dispatched_count += 1
+                    logger.info("Sent urgent expiry alert for batch %s to user %d", batch_id, user.user_id)
         except Exception as exc:
             logger.error("Failed to process expiry alerts: %s", exc)
 
@@ -141,20 +164,17 @@ async def check_and_send_reminders(bot: Any) -> int:
                     continue
 
                 alert_text = (
-                    f"⚠️ *STOCKOUT RISK WARNING* *(Demo)*\n\n"
-                    f"• *Product:* {st['product_name']} (`{st['sku']}`)\n"
-                    f"• *Batch:* `{st['batch_code']}`\n"
-                    f"• *Remaining Stock:* `{st['quantity_on_hand']}` units left\n\n"
+                    "⚠️ <b>STOCKOUT RISK WARNING</b> <i>(Demo)</i>\n\n"
+                    f"• <b>Product:</b> {st['product_name']} (<code>{st['sku']}</code>)\n"
+                    f"• <b>Batch:</b> <code>{st['batch_code']}</code>\n"
+                    f"• <b>Remaining Stock:</b> <b>{st['quantity_on_hand']} units left</b>\n\n"
                     "👉 Consider restocking or reordering this item."
                 )
-                await bot.send_message(
-                    chat_id=user.user_id,
-                    text=alert_text,
-                    parse_mode="Markdown",
-                )
-                _ALERT_DEDUP_CACHE.add(st_key)
-                dispatched_count += 1
-                logger.info("Sent stockout warning for batch %s to user %d", batch_id, user.user_id)
+                sent = await _safe_send_alert(bot, user.user_id, alert_text)
+                if sent:
+                    _ALERT_DEDUP_CACHE.add(st_key)
+                    dispatched_count += 1
+                    logger.info("Sent stockout warning for batch %s to user %d", batch_id, user.user_id)
         except Exception as exc:
             logger.error("Failed to process stockout alerts: %s", exc)
 
@@ -165,20 +185,17 @@ async def check_and_send_reminders(bot: Any) -> int:
                 pending_recs = get_proposed_recommendations(store_id, limit=3)
                 if pending_recs:
                     msg = (
-                        f"💡 *Action Required: {len(pending_recs)} Pending AI Recommendations* *(Demo)*\n\n"
+                        f"💡 <b>Action Required: {len(pending_recs)} Pending AI Recommendations</b> <i>(Demo)</i>\n\n"
                         "Freshwise agentic engine has generated recommendations awaiting your approval:\n"
                     )
                     for r in pending_recs:
-                        msg += f"• [{r['action'].upper()}] *{r['product_name']}* — {r['rationale'][:80]}...\n"
-                    msg += "\n👉 Type `/recommendations` to review and approve/reject."
+                        msg += f"• [{r['action'].upper()}] <b>{r['product_name']}</b> — {r['rationale'][:80]}...\n"
+                    msg += "\n👉 Type /recommendations to review and approve/reject."
 
-                    await bot.send_message(
-                        chat_id=user.user_id,
-                        text=msg,
-                        parse_mode="Markdown",
-                    )
-                    _ALERT_DEDUP_CACHE.add(rec_digest_key)
-                    dispatched_count += 1
+                    sent = await _safe_send_alert(bot, user.user_id, msg)
+                    if sent:
+                        _ALERT_DEDUP_CACHE.add(rec_digest_key)
+                        dispatched_count += 1
             except Exception as exc:
                 logger.error("Failed to process recommendations reminder: %s", exc)
 

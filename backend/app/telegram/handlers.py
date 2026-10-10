@@ -3,6 +3,7 @@ Telegram Bot Handlers.
 
 Implements all user commands, food rescue deals, nearby store discovery,
 reservations, NGO donations, inline callbacks, and AI Copilot interactions.
+Formatted cleanly in Telegram HTML with intuitive emojis and zero random asterisks.
 """
 
 from __future__ import annotations
@@ -55,6 +56,7 @@ from app.telegram.data_service import (
     get_user_reservations,
     review_recommendation,
 )
+from app.telegram.formatter import clean_telegram_text, strip_all_tags
 
 logger = logging.getLogger("freshwise.telegram.handlers")
 
@@ -67,39 +69,91 @@ def _get_user_info(update: Update) -> tuple[int, str, str]:
     return user.id, user.username or "", user.first_name or ""
 
 
+import inspect
+
+async def _maybe_await(val: Any) -> Any:
+    """Await val if it is a coroutine or awaitable, otherwise return it directly."""
+    if inspect.isawaitable(val):
+        return await val
+    return val
+
+
 async def safe_reply_text(
-    update: Update,
+    target: Any,
     text: str,
     reply_markup: Any = None,
-    parse_mode: Any = constants.ParseMode.MARKDOWN,
+    parse_mode: Any = constants.ParseMode.HTML,
 ) -> Message | None:
     """
-    Safely reply to an incoming message, falling back to plain text if Markdown entity parsing fails.
-    Prevents unescaped Markdown from causing silent message send failures.
+    Safely reply to an incoming update or message using clean Telegram HTML.
+    Automatically formats text through clean_telegram_text, stripping raw asterisks
+    and falling back to clean plain text if Telegram entity parsing ever fails.
     """
-    if not update or not update.message:
+    if not target:
+        return None
+    target_msg = getattr(target, "message", None) or target
+    if not hasattr(target_msg, "reply_text"):
         return None
 
+    cleaned_text = clean_telegram_text(text) if parse_mode == constants.ParseMode.HTML else text
+
     try:
-        return await update.message.reply_text(
-            text,
-            reply_markup=reply_markup,
-            parse_mode=parse_mode,
+        return await _maybe_await(
+            target_msg.reply_text(
+                cleaned_text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode,
+            )
         )
     except Exception as exc:
         logger.warning(
-            "Failed to send message with parse_mode=%s (%s). Retrying in plain text.",
+            "Failed to send message with parse_mode=%s (%s). Retrying in clean plain text.",
             parse_mode,
             exc,
         )
         try:
-            return await update.message.reply_text(
-                text,
-                reply_markup=reply_markup,
-                parse_mode=None,
+            plain = strip_all_tags(text)
+            return await _maybe_await(
+                target_msg.reply_text(
+                    plain,
+                    reply_markup=reply_markup,
+                    parse_mode=None,
+                )
             )
         except Exception as fallback_exc:
             logger.error("Failed to send fallback plain text message: %s", fallback_exc)
+            return None
+
+
+async def safe_edit_message_text(
+    query: Any,
+    text: str,
+    reply_markup: Any = None,
+    parse_mode: Any = constants.ParseMode.HTML,
+) -> Any:
+    """Safely edit a callback query message with clean HTML and plain text fallback."""
+    cleaned_text = clean_telegram_text(text) if parse_mode == constants.ParseMode.HTML else text
+    try:
+        return await _maybe_await(
+            query.edit_message_text(
+                cleaned_text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode,
+            )
+        )
+    except Exception as exc:
+        logger.warning("Failed to edit message with parse_mode=%s (%s). Retrying plain text.", parse_mode, exc)
+        plain = strip_all_tags(text)
+        try:
+            return await _maybe_await(
+                query.edit_message_text(
+                    plain,
+                    reply_markup=reply_markup,
+                    parse_mode=None,
+                )
+            )
+        except Exception as fallback_exc:
+            logger.error("Failed to edit message in plain text: %s", fallback_exc)
             return None
 
 
@@ -114,11 +168,11 @@ async def _check_auth(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Aut
 
     if not is_authorized(user_id):
         unauth_msg = (
-            "🔒 *Access Denied — Unauthorized User*\n\n"
-            f"Your Telegram User ID: `{user_id}`\n\n"
+            "🔒 <b>Access Denied — Unauthorized User</b>\n\n"
+            f"Your Telegram User ID: <code>{user_id}</code>\n\n"
             "You are not authorized to view or manage store inventory data.\n\n"
-            "👉 *To authenticate as a Store Manager:*\n"
-            "Add your Telegram User ID to `TELEGRAM_ALLOWED_USER_IDS` in `backend/.env`."
+            "👉 <b>To authenticate as a Store Manager:</b>\n"
+            "Add your Telegram User ID to <code>TELEGRAM_ALLOWED_USER_IDS</code> in <code>backend/.env</code>."
         )
         if update.message:
             await safe_reply_text(update, unauth_msg)
@@ -128,7 +182,6 @@ async def _check_auth(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Aut
 
     auth_user = get_authorized_user(user_id)
     return auth_user
-
 
 
 # ---------------------------------------------------------------------------
@@ -141,64 +194,64 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     if not is_authorized(user_id):
         welcome_unauth = (
-            "🌿 *Welcome to Freshwise Zero-Waste Grocery Assistant!*\n\n"
-            "This bot provides proactive inventory alerts, food rescue deals, "
-            "nearby store discovery, and AI-driven markdown/donation approvals.\n\n"
-            f"🔒 *Status:* Unauthorized (ID: `{user_id}`)\n\n"
+            "🌿 <b>Welcome to Freshwise Zero-Waste Assistant!</b>\n\n"
+            "This bot provides proactive inventory alerts, surplus rescue deals, "
+            "nearby store discovery, and AI markdown approvals.\n\n"
+            f"🔒 <b>Status:</b> Unauthorized (ID: <code>{user_id}</code>)\n\n"
             "To access store data, add your Telegram User ID "
-            "to `TELEGRAM_ALLOWED_USER_IDS` in `backend/.env`.\n\n"
-            "Type `/help` for more information."
+            "to <code>TELEGRAM_ALLOWED_USER_IDS</code> in <code>backend/.env</code>.\n\n"
+            "Type /help for more information."
         )
-        await update.message.reply_text(welcome_unauth, parse_mode=constants.ParseMode.MARKDOWN)
+        await safe_reply_text(update, welcome_unauth)
         return
 
     auth_user = get_authorized_user(user_id)
-    store_name = auth_user.store_name if auth_user else "[DEMO] Freshwise Central"
+    store_name = auth_user.store_name if auth_user else "Freshwise Central (Demo)"
 
     welcome_auth = (
-        f"🌿 *Welcome back, {html.escape(first_name or username or 'Manager')}!*\n\n"
-        f"🏬 *Active Network:* Freshwise Zero-Waste Grocery *(Demo)*\n"
-        f"📍 *Primary Store:* {store_name}\n\n"
-        "⚡ *Customer & Food Rescue Commands:*\n"
-        "• `/nearby` — Find nearest zero-waste stores & food rescue spots\n"
-        "• `/deals` — Browse markdown surplus offers & reserve items\n"
-        "• `/donations` — View NGO food rescue & community donations\n"
-        "• `/myreservations` — View or cancel active demo reservations\n\n"
-        "📊 *Store Operations & AI Intelligence:*\n"
-        "• `/summary` — Today's executive briefing & stock health\n"
-        "• `/inventory` — Itemized stock breakdown\n"
-        "• `/expiring` — Batches approaching expiry\n"
-        "• `/stockouts` — Low-stock warnings\n"
-        "• `/recommendations` — Review & approve AI pricing actions\n"
-        "• `/help` — Full command manual\n\n"
-        "💬 *You can also ask me natural questions!* (e.g. *'Find bread deals near Indiranagar'*)"
+        f"🌿 <b>Welcome back, {html.escape(first_name or username or 'Manager')}!</b>\n\n"
+        f"🏬 <b>Store:</b> {store_name}\n"
+        "⚡ <i>Zero-Waste Food Rescue Network active</i>\n\n"
+        "🛍️ <b>Food Rescue & Community:</b>\n"
+        "• /nearby — Nearest zero-waste stores & hubs\n"
+        "• /deals — Browse discounted surplus offers\n"
+        "• /donations — NGO food rescue batches\n"
+        "• /myreservations — Active pickup reservations\n\n"
+        "📊 <b>Store Management & AI:</b>\n"
+        "• /summary — Today's stock & sales briefing\n"
+        "• /expiring — Batches expiring within 7 days\n"
+        "• /inventory — Complete inventory breakdown\n"
+        "• /stockouts — Low-stock run-out warnings\n"
+        "• /recommendations — Review AI pricing actions\n"
+        "• /help — Full command manual\n\n"
+        "💬 <i>You can also ask questions like: \"What deals are expiring today?\"</i>"
     )
-    await update.message.reply_text(welcome_auth, parse_mode=constants.ParseMode.MARKDOWN)
+    await safe_reply_text(update, welcome_auth)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /help command."""
     help_text = (
-        "📖 *Freshwise Store Assistant — Command Guide*\n\n"
-        "🛍️ *Nearby Stores & Food Rescue (Demo):*\n"
-        "• `/nearby [PIN/locality]` — Locate closest Freshwise stores (e.g. `/nearby 560038` or `/nearby Indiranagar`)\n"
-        "• `/deals [store_id]` — Browse discounted surplus food deals and make instant demo reservations\n"
-        "• `/donations` — View food rescue batches dispatched to NGO partners\n"
-        "• `/store [code]` — View full store profile, hours, and directions\n"
-        "• `/myreservations` — Check your active demo reservation codes & pickup status\n\n"
-        "📊 *Store Management:*\n"
-        "• `/summary` — Executive store briefing, sales, and urgent risks\n"
-        "• `/expiring` — Batches expiring within 7 days sorted by urgency\n"
-        "• `/inventory` — View active batches, quantities, and prices\n"
-        "• `/stockouts` — Low-stock run-out warnings\n"
-        "• `/recommendations` — Review and approve/reject AI markdowns\n\n"
-        "🤖 *AI Store Copilot:*\n"
-        "Send any message to search deals or query inventory intelligence:\n"
-        "• *'Find dairy deals near Indiranagar'*\n"
-        "• *'Which products are expiring this week?'*\n"
-        "• *'Show NGO donations in Central Bengaluru'*"
+        "📖 <b>Freshwise Assistant — Command Guide</b>\n\n"
+        "🛍️ <b>Nearby Stores & Food Rescue:</b>\n"
+        "• /nearby [location] — Locate closest stores (e.g. <code>/nearby Indiranagar</code>)\n"
+        "• /deals — Browse surplus deals and reserve items\n"
+        "• /donations — Surplus dispatched to NGO partners\n"
+        "• /store [code] — Store profile, hours & directions\n"
+        "• /myreservations — View active pickup reservation codes\n\n"
+        "📊 <b>Store Operations:</b>\n"
+        "• /summary — Store briefing, health & sales\n"
+        "• /expiring — Batches expiring within 7 days\n"
+        "• /inventory — Active stock quantities and prices\n"
+        "• /stockouts — Low-stock warnings (≤ 5 units)\n"
+        "• /recommendations — Review AI discount proposals\n\n"
+        "🤖 <b>AI Store Copilot:</b>\n"
+        "Send any operational question anytime:\n"
+        "• <i>\"Top rescue opportunities today\"</i>\n"
+        "• <i>\"What dairy items are expiring soon?\"</i>\n"
+        "• <i>\"Find bread deals near Indiranagar\"</i>"
     )
-    await update.message.reply_text(help_text, parse_mode=constants.ParseMode.MARKDOWN)
+    await safe_reply_text(update, help_text)
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +272,6 @@ async def nearby_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     location_label = "Central Bengaluru (Default)"
 
     if query:
-        # Check if coordinates "lat, lon" passed directly
         if "," in query:
             try:
                 parts = query.split(",")
@@ -239,17 +291,16 @@ async def nearby_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     nearby = get_nearby_stores(lat, lon, max_radius_km=40.0)
 
-    # Location prompt keyboard button
     loc_keyboard = [[KeyboardButton(text="📍 Share Current Location", request_location=True)]]
     reply_markup_kb = ReplyKeyboardMarkup(loc_keyboard, resize_keyboard=True, one_time_keyboard=True)
 
     header_msg = (
-        f"📍 *Nearby Zero-Waste Stores & Food Rescue Hubs*\n"
-        f"🔍 *Reference Location:* {location_label}\n"
-        f"*(Found {len(nearby)} demo stores within radius)*\n\n"
-        "💡 *Tip:* Send a PIN or locality like `/nearby 560038` or tap the button below to share GPS location."
+        "📍 <b>Nearby Zero-Waste Stores & Food Rescue Hubs</b>\n"
+        f"🔍 <b>Location:</b> {location_label}\n"
+        f"<i>(Found {len(nearby)} demo stores within radius)</i>\n\n"
+        "💡 <i>Tip: Send a locality like <code>/nearby Koramangala</code> or tap the button below.</i>"
     )
-    await update.message.reply_text(header_msg, reply_markup=reply_markup_kb, parse_mode=constants.ParseMode.MARKDOWN)
+    await safe_reply_text(update, header_msg, reply_markup=reply_markup_kb)
 
     for s in nearby[:4]:
         dist_km = s.get("distance_km", 0.0)
@@ -257,13 +308,12 @@ async def nearby_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         maps_url = f"https://www.google.com/maps/dir/?api=1&destination={s['latitude']},{s['longitude']}"
 
         card_text = (
-            f"🏬 **{s['name']}**\n"
-            f"📍 `{dist_km} km away` | {s['locality']}\n"
+            f"🏬 <b>{s['name']}</b>\n"
+            f"📍 <code>{dist_km:.1f} km away</code> • {s['locality']}\n"
             f"🏢 Address: {s['address']}\n"
             f"🕒 Hours: {s['pickup_hours']}\n"
-            f"🏷️ Available Rescue Deals: `{deals_count} active offer(s)`\n"
-            f"📞 Contact: `{s['contact_phone']}`\n\n"
-            f"*(DEMO DATA)*"
+            f"🏷️ Active Deals: <b>{deals_count} offer(s)</b>\n"
+            f"📞 Contact: <code>{s['contact_phone']}</code>"
         )
 
         keyboard = [
@@ -275,7 +325,7 @@ async def nearby_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        await update.message.reply_text(card_text, reply_markup=reply_markup, parse_mode=constants.ParseMode.MARKDOWN)
+        await safe_reply_text(update, card_text, reply_markup=reply_markup)
 
 
 async def location_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -284,7 +334,7 @@ async def location_message_handler(update: Update, context: ContextTypes.DEFAULT
     if not auth_user:
         return
 
-    loc = update.message.location
+    loc = update.message.location if update.message else None
     if not loc:
         return
 
@@ -293,12 +343,11 @@ async def location_message_handler(update: Update, context: ContextTypes.DEFAULT
 
     nearby = get_nearby_stores(lat, lon, max_radius_km=50.0)
 
-    # Remove the location keyboard
-    await update.message.reply_text(
-        f"📍 *GPS Location Received:* `{lat:.4f}, {lon:.4f}`\n"
+    await safe_reply_text(
+        update,
+        f"📍 <b>GPS Location Received:</b> <code>{lat:.4f}, {lon:.4f}</code>\n"
         f"Showing {len(nearby)} Freshwise stores sorted by distance:",
         reply_markup=ReplyKeyboardRemove(),
-        parse_mode=constants.ParseMode.MARKDOWN,
     )
 
     for s in nearby:
@@ -307,12 +356,11 @@ async def location_message_handler(update: Update, context: ContextTypes.DEFAULT
         maps_url = f"https://www.google.com/maps/dir/?api=1&destination={s['latitude']},{s['longitude']}"
 
         card_text = (
-            f"🏬 **{s['name']}**\n"
-            f"📍 `{dist_km} km away` | {s['locality']}\n"
+            f"🏬 <b>{s['name']}</b>\n"
+            f"📍 <code>{dist_km:.1f} km away</code> • {s['locality']}\n"
             f"🏢 Address: {s['address']}\n"
-            f"🕒 Pickup Hours: {s['pickup_hours']}\n"
-            f"🏷️ Active Deals: `{deals_count} offers`\n\n"
-            f"*(DEMO DATA)*"
+            f"🕒 Hours: {s['pickup_hours']}\n"
+            f"🏷️ Active Deals: <b>{deals_count} offer(s)</b>"
         )
 
         keyboard = [
@@ -323,7 +371,7 @@ async def location_message_handler(update: Update, context: ContextTypes.DEFAULT
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        await update.message.reply_text(card_text, reply_markup=reply_markup, parse_mode=constants.ParseMode.MARKDOWN)
+        await safe_reply_text(update, card_text, reply_markup=reply_markup)
 
 
 # ---------------------------------------------------------------------------
@@ -341,30 +389,28 @@ async def deals_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     deals = get_all_rescue_deals(store_id=filter_store_id)
     if not deals:
-        await update.message.reply_text(
-            "🟢 *No active food rescue deals found at this time.*\nAll items sold out or fresh.",
-            parse_mode=constants.ParseMode.MARKDOWN,
+        await safe_reply_text(
+            update,
+            "🟢 <b>No active food rescue deals found.</b>\nAll surplus items have been cleared or reserved.",
         )
         return
 
     header = (
-        f"🏷️ *Freshwise Food Rescue Deals* *(Demo Mode)*\n"
-        f"Surplus perishable items discounted to prevent waste. Reserve now for store pickup:\n"
+        "🏷️ <b>Freshwise Food Rescue Deals</b> <i>(Demo Mode)</i>\n"
+        "Surplus perishable items discounted to prevent waste. Reserve now for pickup:"
     )
-    await update.message.reply_text(header, parse_mode=constants.ParseMode.MARKDOWN)
+    await safe_reply_text(update, header)
 
     for d in deals:
         deal_id = d["id"]
-        exp_tag = "🔴 **EXPIRES TOMORROW**" if d["days_left"] == 1 else f"🟠 **{d['days_left']} days left**"
+        exp_tag = "🔴 1 DAY LEFT" if d["days_left"] == 1 else f"🟠 {d['days_left']} days left"
 
         card = (
-            f"📦 **{d['product_name']}** ({d['sku']})\n"
-            f"🏬 Store: {d['store_name']}\n"
-            f"💰 Price: **₹{d['rescue_price']:.2f}** ~₹{d['original_price']:.2f}~ (`{d['discount_percent']}% OFF`)\n"
-            f"📦 Stock Available: `{d['quantity_available']} unit(s)`\n"
-            f"⏰ Expiry: `{d['expiry_date']}` ({exp_tag})\n"
-            f"🕒 Pickup Window: `{d['pickup_window']}`\n\n"
-            f"*(DEMO DATA)*"
+            f"📦 <b>{d['product_name']}</b> ({d['sku']})\n"
+            f"🏪 <b>Store:</b> {d['store_name']}\n"
+            f"💰 <b>Deal:</b> <b>₹{d['rescue_price']:.1f}</b> <s>₹{d['original_price']:.1f}</s> (<code>{d['discount_percent']}% OFF</code>)\n"
+            f"📦 <b>Qty:</b> <code>{d['quantity_available']} left</code> • ⏰ <b>Expiry:</b> {d['expiry_date']} ({exp_tag})\n"
+            f"🕒 <b>Pickup:</b> {d['pickup_window']}"
         )
 
         keyboard = [
@@ -375,7 +421,7 @@ async def deals_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        await update.message.reply_text(card, reply_markup=reply_markup, parse_mode=constants.ParseMode.MARKDOWN)
+        await safe_reply_text(update, card, reply_markup=reply_markup)
 
 
 async def donations_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -386,25 +432,23 @@ async def donations_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     donations = get_all_donations()
     if not donations:
-        await update.message.reply_text("🟢 *No pending NGO donations at this time.*")
+        await safe_reply_text(update, "🟢 <b>No pending NGO donations at this time.</b>")
         return
 
     lines = [
-        "🤝 *NGO Food Rescue & Community Donations* *(Demo Data)*\n",
-        "Wholesome surplus food earmarked for non-profit community meal distribution:\n",
+        "🤝 <b>NGO Food Rescue & Community Donations</b> <i>(Demo Data)</i>\n",
+        "Wholesome surplus food earmarked for non-profit distribution:\n",
     ]
 
     for don in donations:
         lines.append(
-            f"• **{don['product_name']}** (`{don['quantity']} units`)\n"
-            f"   🏬 Store: {don['store_name']}\n"
-            f"   🤝 Partner: **{don['partner_name']}**\n"
-            f"   🕒 Pickup: `{don['pickup_deadline']}`\n"
-            f"   🛡️ Safety: {don['eligibility_basis']}\n"
-            f"   📌 Status: `{don['status'].upper()}`\n"
+            f"• <b>{don['product_name']}</b> (<code>{don['quantity']} units</code>)\n"
+            f"   🏪 <b>Store:</b> {don['store_name']}\n"
+            f"   🤝 <b>Partner:</b> {don['partner_name']}\n"
+            f"   🕒 <b>Pickup:</b> <code>{don['pickup_deadline']}</code> • 📌 <b>Status:</b> <code>{don['status'].upper()}</code>\n"
         )
 
-    await update.message.reply_text("\n".join(lines), parse_mode=constants.ParseMode.MARKDOWN)
+    await safe_reply_text(update, "\n".join(lines))
 
 
 async def store_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -419,10 +463,10 @@ async def store_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     store = get_demo_store_by_id(target)
     if not store:
         stores = get_all_demo_stores()
-        list_str = "\n".join([f"• `{s['code']}` — {s['name']}" for s in stores])
-        await update.message.reply_text(
+        list_str = "\n".join([f"• <code>{s['code']}</code> — {s['name']}" for s in stores])
+        await safe_reply_text(
+            update,
             f"❌ Store not found. Available demo stores:\n\n{list_str}",
-            parse_mode=constants.ParseMode.MARKDOWN,
         )
         return
 
@@ -430,13 +474,12 @@ async def store_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     maps_url = f"https://www.google.com/maps/dir/?api=1&destination={store['latitude']},{store['longitude']}"
 
     msg = (
-        f"🏬 **{store['name']}** (`{store['code']}`)\n"
-        f"📍 Locality: {store['locality']} (PIN: {store['pincode']})\n"
-        f"🏢 Address: {store['address']}\n"
-        f"🕒 Hours: {store['pickup_hours']}\n"
-        f"📞 Phone: `{store['contact_phone']}`\n"
-        f"🏷️ Active Rescue Deals: `{len(deals)} available`\n\n"
-        f"*(DEMO STORE)*"
+        f"🏬 <b>{store['name']}</b> (<code>{store['code']}</code>)\n"
+        f"📍 <b>Locality:</b> {store['locality']} (PIN: {store['pincode']})\n"
+        f"🏢 <b>Address:</b> {store['address']}\n"
+        f"🕒 <b>Hours:</b> {store['pickup_hours']}\n"
+        f"📞 <b>Contact:</b> <code>{store['contact_phone']}</code>\n"
+        f"🏷️ <b>Active Rescue Deals:</b> <code>{len(deals)} available</code>"
     )
 
     keyboard = [
@@ -447,7 +490,7 @@ async def store_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text(msg, reply_markup=reply_markup, parse_mode=constants.ParseMode.MARKDOWN)
+    await safe_reply_text(update, msg, reply_markup=reply_markup)
 
 
 async def myreservations_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -460,28 +503,27 @@ async def myreservations_command(update: Update, context: ContextTypes.DEFAULT_T
     reservations = get_user_reservations(user_id)
 
     if not reservations:
-        await update.message.reply_text(
-            "ℹ️ *You have no active demo reservations.*\n\n"
-            "Use `/deals` or `/nearby` to find discounted items and make a demo reservation.",
-            parse_mode=constants.ParseMode.MARKDOWN,
+        await safe_reply_text(
+            update,
+            "ℹ️ <b>You have no active demo reservations.</b>\n\n"
+            "Use /deals or /nearby to find surplus items and reserve them for store pickup.",
         )
         return
 
-    await update.message.reply_text(
-        f"🔖 *Your Demo Food Rescue Reservations ({len(reservations)}):*",
-        parse_mode=constants.ParseMode.MARKDOWN,
+    await safe_reply_text(
+        update,
+        f"🔖 <b>Your Food Rescue Reservations ({len(reservations)}):</b>",
     )
 
     for r in reservations:
         status_icon = "🟢 CONFIRMED" if r["status"] == "confirmed" else "⚪ CANCELLED"
         res_card = (
-            f"🔖 **Reservation Code: `{r['reservation_code']}`**\n"
-            f"📦 Item: **{r['product_name']}** ({r['quantity']}x)\n"
-            f"🏬 Store: {r['store_name']}\n"
-            f"💰 Total Amount: ₹{r['total_amount']:.2f} (Demo)\n"
-            f"🕒 Pickup Window: `{r['pickup_window']}`\n"
-            f"📌 Status: **{status_icon}**\n\n"
-            f"*(DEMO RESERVATION)*"
+            f"🔖 <b>Reservation Code:</b> <code>{r['reservation_code']}</code>\n"
+            f"📦 <b>Item:</b> <b>{r['product_name']}</b> ({r['quantity']}x)\n"
+            f"🏪 <b>Store:</b> {r['store_name']}\n"
+            f"💰 <b>Total Amount:</b> ₹{r['total_amount']:.2f}\n"
+            f"🕒 <b>Pickup:</b> {r['pickup_window']}\n"
+            f"📌 <b>Status:</b> <b>{status_icon}</b>"
         )
 
         keyboard = []
@@ -489,7 +531,7 @@ async def myreservations_command(update: Update, context: ContextTypes.DEFAULT_T
             keyboard.append([InlineKeyboardButton("❌ Cancel Reservation", callback_data=f"cancel_res:{r['id']}")])
 
         reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
-        await update.message.reply_text(res_card, reply_markup=reply_markup, parse_mode=constants.ParseMode.MARKDOWN)
+        await safe_reply_text(update, res_card, reply_markup=reply_markup)
 
 
 # ---------------------------------------------------------------------------
@@ -507,20 +549,20 @@ async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     rec_badge = "⚡" if s["open_recommendations_count"] > 0 else "✓"
 
     msg = (
-        f"🏬 *Store Briefing: {s['store_name']}* *(Demo Data)*\n"
-        f"📅 *As of:* {__import__('datetime').date.today().isoformat()}\n\n"
-        f"📦 *Inventory Overview:*\n"
-        f"• Active Batches: `{s['total_batches']}`\n"
-        f"• Total Units on Hand: `{s['total_units_on_hand']}`\n\n"
-        f"⏰ *Expiry Watch:*\n"
-        f"• {exp_badge} Batches Expiring (<=3 days): `{s['expiring_soon_count']}`\n"
-        f"• Expired Batches: `{s['expired_count']}`\n\n"
-        f"💡 *Agentic Recommendations:*\n"
-        f"• {rec_badge} Pending Review: `{s['open_recommendations_count']}`\n\n"
-        f"📈 *7-Day Sales Volume:* `{s['sales_units_7d']}` units\n\n"
-        "👉 Use `/expiring` for urgent batches, `/deals` for customer offers, or `/recommendations` to review action items."
+        f"🏬 <b>Store Briefing: {s['store_name']}</b> <i>(Demo Data)</i>\n"
+        f"📅 <b>Date:</b> {__import__('datetime').date.today().isoformat()}\n\n"
+        "📦 <b>Inventory Overview:</b>\n"
+        f"• Active Batches: <code>{s['total_batches']}</code>\n"
+        f"• Units on Hand: <code>{s['total_units_on_hand']}</code> units\n\n"
+        "⏰ <b>Expiry Watch:</b>\n"
+        f"• {exp_badge} Expiring (≤3 days): <code>{s['expiring_soon_count']}</code> batches\n"
+        f"• Expired Batches: <code>{s['expired_count']}</code>\n\n"
+        "💡 <b>Action Recommendations:</b>\n"
+        f"• {rec_badge} Pending Review: <code>{s['open_recommendations_count']}</code> items\n\n"
+        f"📈 <b>7-Day Sales Volume:</b> <code>{s['sales_units_7d']}</code> units\n\n"
+        "👉 Use /expiring for urgent batches or /recommendations to review actions."
     )
-    await update.message.reply_text(msg, parse_mode=constants.ParseMode.MARKDOWN)
+    await safe_reply_text(update, msg)
 
 
 async def expiring_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -531,35 +573,35 @@ async def expiring_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     batches = get_expiring_batches(auth_user.store_id, days_threshold=7)
     if not batches:
-        await update.message.reply_text(
-            "🟢 *No batches expiring within the next 7 days!*\nAll inventory is fresh.",
-            parse_mode=constants.ParseMode.MARKDOWN,
+        await safe_reply_text(
+            update,
+            "🟢 <b>No batches expiring within the next 7 days!</b>\nAll store inventory is fresh.",
         )
         return
 
-    lines = ["⏰ *Batches Expiring Soon (Next 7 Days) — Demo Data:*\n"]
-    for b in batches:
+    lines = ["⏰ <b>Batches Expiring Soon (Next 7 Days):</b>\n"]
+    for i, b in enumerate(batches, 1):
         days = b["days_left"]
         if isinstance(days, int):
             if days <= 0:
-                tag = "🔴 **EXPIRED / TODAY**"
+                tag = "🔴 EXPIRED"
             elif days == 1:
-                tag = "🔴 **1 DAY LEFT**"
+                tag = "🔴 1 DAY LEFT"
             elif days <= 3:
-                tag = f"🟠 **{days} days left**"
+                tag = f"🟠 {days} days left"
             else:
                 tag = f"🟡 {days} days left"
         else:
             tag = "⚪ Unknown"
 
         lines.append(
-            f"• *{b['product_name']}* ({b['sku']})\n"
-            f"   Batch: `{b['batch_code']}` | Qty: `{b['quantity_on_hand']}` | "
-            f"Expiry: `{b['expiry_date']}` ({tag})\n"
+            f"• <b>{b['product_name']}</b> ({b['sku']})\n"
+            f"   📦 <code>{b['quantity_on_hand']}</code> units • ⏰ <code>{b['expiry_date']}</code> ({tag})\n"
+            f"   🔖 Batch: <code>{b['batch_code']}</code>\n"
         )
 
-    lines.append("\n👉 Review dynamic pricing recommendations with `/recommendations`.")
-    await update.message.reply_text("\n".join(lines), parse_mode=constants.ParseMode.MARKDOWN)
+    lines.append("👉 Review dynamic pricing recommendations with /recommendations")
+    await safe_reply_text(update, "\n".join(lines))
 
 
 async def inventory_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -570,18 +612,18 @@ async def inventory_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     items = get_inventory_status(auth_user.store_id)
     if not items:
-        await update.message.reply_text("ℹ️ No active inventory records found.")
+        await safe_reply_text(update, "ℹ️ <b>No active inventory records found.</b>")
         return
 
-    lines = [f"📦 *Store Inventory Status ({len(items)} batches) — Demo Data:*\n"]
+    lines = [f"📦 <b>Store Inventory ({len(items)} batches) — Demo Data:</b>\n"]
     for it in items:
-        days_str = f"exp in {it['days_left']}d" if it['days_left'] is not None else "no expiry"
+        days_str = f"exp in {it['days_left']}d" if it['days_left'] is not None else "fresh"
         lines.append(
-            f"• *{it['product_name']}* (`{it['sku']}`)\n"
-            f"   Category: {it['category']} | Qty: `{it['quantity_on_hand']}` | ₹{it['selling_price']} | ({days_str})\n"
+            f"• <b>{it['product_name']}</b> (<code>{it['sku']}</code>)\n"
+            f"   🏷️ {it['category'].capitalize()} • 📦 <code>{it['quantity_on_hand']}</code> units • 💰 ₹{it['selling_price']} ({days_str})\n"
         )
 
-    await update.message.reply_text("\n".join(lines), parse_mode=constants.ParseMode.MARKDOWN)
+    await safe_reply_text(update, "\n".join(lines))
 
 
 async def stockouts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -592,22 +634,23 @@ async def stockouts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     risks = get_stockout_risks(auth_user.store_id, max_units_threshold=5)
     if not risks:
-        await update.message.reply_text(
-            "🟢 *No stockout risks detected!*\nAll items have sufficient stock levels (>5 units).",
-            parse_mode=constants.ParseMode.MARKDOWN,
+        await safe_reply_text(
+            update,
+            "🟢 <b>No stockout risks detected!</b>\nAll items have healthy shelf counts (>5 units).",
         )
         return
 
-    lines = ["⚠️ *Low Stock & Stockout Warnings (<=5 units) — Demo Data:*\n"]
+    lines = ["⚠️ <b>Low Stock & Stockout Warnings (≤5 units):</b>\n"]
     for r in risks:
-        badge = "🚨" if r["urgency"] == "CRITICAL" else "⚠️"
+        badge = "🚨 CRITICAL" if r["urgency"] == "CRITICAL" else "⚠️ LOW"
         lines.append(
-            f"• {badge} *{r['product_name']}* ({r['sku']})\n"
-            f"   Batch: `{r['batch_code']}` | Units Left: `{r['quantity_on_hand']}` | Status: *{r['urgency']}*\n"
+            f"• <b>{r['product_name']}</b> ({r['sku']})\n"
+            f"   📦 <b>{r['quantity_on_hand']} units left</b> • Status: {badge}\n"
+            f"   🔖 Batch: <code>{r['batch_code']}</code>\n"
         )
 
-    lines.append("\n👉 Consider placing purchase orders or replenishing inventory.")
-    await update.message.reply_text("\n".join(lines), parse_mode=constants.ParseMode.MARKDOWN)
+    lines.append("👉 Consider restocking or confirming shelf inventory count.")
+    await safe_reply_text(update, "\n".join(lines))
 
 
 async def recommendations_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -618,33 +661,32 @@ async def recommendations_command(update: Update, context: ContextTypes.DEFAULT_
 
     recs = get_proposed_recommendations(auth_user.store_id, limit=5)
     if not recs:
-        await update.message.reply_text(
-            "🟢 *No pending recommendations awaiting review!*\n"
+        await safe_reply_text(
+            update,
+            "🟢 <b>No pending recommendations awaiting review!</b>\n"
             "All recommendations have been processed or none are currently proposed.",
-            parse_mode=constants.ParseMode.MARKDOWN,
         )
         return
 
-    await update.message.reply_text(
-        f"💡 *Found {len(recs)} recommendation(s) awaiting your decision:*\n"
-        "Click Approve or Reject below each recommendation card to record your managerial decision.",
-        parse_mode=constants.ParseMode.MARKDOWN,
+    await safe_reply_text(
+        update,
+        f"💡 <b>Found {len(recs)} recommendation(s) awaiting your decision:</b>\n"
+        "Tap Approve or Reject below each card to record your managerial decision.",
     )
 
     for r in recs:
         rec_id = r["id"]
         action = r["action"].upper()
         prod_name = r["product_name"]
-        discount_text = f" | Discount: `{r['discount_percent']}%`" if r.get("discount_percent") else ""
-        qty_text = f" | Qty: `{r['proposed_quantity']}`" if r.get("proposed_quantity") else ""
+        discount_text = f" • Discount: <code>{r['discount_percent']}%</code>" if r.get("discount_percent") else ""
+        qty_text = f" • Qty: <code>{r['proposed_quantity']}</code>" if r.get("proposed_quantity") else ""
 
         card_text = (
-            f"📋 *Recommendation #{rec_id[:12]}*\n"
-            f"🏷️ *Product:* {prod_name} (`{r['sku']}`)\n"
-            f"⚡ *Action:* **[{action}]**{discount_text}{qty_text}\n"
-            f"🎯 *Confidence:* `{int(r['confidence'] * 100)}%`\n"
-            f"📝 *Rationale:* {r['rationale']}\n\n"
-            f"*(Status: PROPOSED — DEMO DATA)*"
+            f"📋 <b>Recommendation #{rec_id[:12]}</b>\n"
+            f"🏷️ <b>Product:</b> {prod_name} (<code>{r['sku']}</code>)\n"
+            f"⚡ <b>Action:</b> <b>[{action}]</b>{discount_text}{qty_text}\n"
+            f"🎯 <b>Confidence:</b> <code>{int(r['confidence'] * 100)}%</code>\n"
+            f"📝 <b>Rationale:</b> {r['rationale']}"
         )
 
         keyboard = [
@@ -656,11 +698,7 @@ async def recommendations_command(update: Update, context: ContextTypes.DEFAULT_
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        await update.message.reply_text(
-            card_text,
-            reply_markup=reply_markup,
-            parse_mode=constants.ParseMode.MARKDOWN,
-        )
+        await safe_reply_text(update, card_text, reply_markup=reply_markup)
 
 
 # ---------------------------------------------------------------------------
@@ -720,25 +758,26 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
 
         if not success:
             await query.answer(message, show_alert=True)
-            if updated_rec:
+            if updated_rec and query.message:
                 status_upper = updated_rec.get("status", "processed").upper()
-                await query.edit_message_text(
-                    f"{query.message.text}\n\n⚠️ *Already {status_upper} by {updated_rec.get('reviewed_by') or 'manager'}*",
-                    parse_mode=constants.ParseMode.MARKDOWN,
+                await safe_edit_message_text(
+                    query,
+                    f"{query.message.text}\n\n⚠️ <i>Already {status_upper} by {updated_rec.get('reviewed_by') or 'manager'}</i>",
                 )
             return
 
         await query.answer(f"Recommendation {decision.capitalize()} (Demo)!", show_alert=False)
 
         status_icon = "✅ APPROVED" if decision == "approved" else "❌ REJECTED"
+        original_msg = query.message.text if query.message else ""
         updated_text = (
-            f"{query.message.text}\n\n"
+            f"{original_msg}\n\n"
             f"═════════════════════════\n"
-            f"📌 **{status_icon}** by {first_name or username or 'Manager'} (`{actor_id}`)\n"
+            f"📌 <b>{status_icon}</b> by {first_name or username or 'Manager'} (<code>{actor_id}</code>)\n"
             f"🕒 Timestamp: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
-            f"*(Demo decision recorded. No physical ERP action dispatched.)*"
+            "<i>(Demo decision recorded. No physical ERP action dispatched.)</i>"
         )
-        await query.edit_message_text(updated_text, parse_mode=constants.ParseMode.MARKDOWN)
+        await safe_edit_message_text(query, updated_text)
         return
 
     # 3. Reserve Food Rescue Deal
@@ -760,7 +799,7 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
             return
 
         await query.answer("🎉 Demo Reservation Confirmed!", show_alert=False)
-        await query.message.reply_text(msg, parse_mode=constants.ParseMode.MARKDOWN)
+        await safe_reply_text(query.message, msg)
         return
 
     # 4. Cancel Reservation
@@ -771,9 +810,10 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
             return
 
         await query.answer("Reservation cancelled.", show_alert=False)
-        await query.edit_message_text(
-            f"{query.message.text}\n\n⚠️ **CANCELLED by user**",
-            parse_mode=constants.ParseMode.MARKDOWN,
+        original_msg = query.message.text if query.message else ""
+        await safe_edit_message_text(
+            query,
+            f"{original_msg}\n\n⚠️ <b>CANCELLED by user</b>",
         )
         return
 
@@ -802,13 +842,13 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await query.answer()
         for d in deals:
             card = (
-                f"📦 **{d['product_name']}**\n"
-                f"💰 Price: **₹{d['rescue_price']:.2f}** (`{d['discount_percent']}% OFF`)\n"
-                f"🕒 Pickup: {d['pickup_window']}\n"
-                f"📦 Stock: {d['quantity_available']} left\n"
+                f"📦 <b>{d['product_name']}</b>\n"
+                f"💰 <b>Price:</b> <b>₹{d['rescue_price']:.1f}</b> (<code>{d['discount_percent']}% OFF</code>)\n"
+                f"🕒 <b>Pickup:</b> {d['pickup_window']}\n"
+                f"📦 <b>Stock:</b> <code>{d['quantity_available']} left</code>"
             )
             keyboard = [[InlineKeyboardButton(f"📦 Reserve 1x (₹{d['rescue_price']:.0f})", callback_data=f"reserve_deal:{d['id']}")]]
-            await query.message.reply_text(card, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=constants.ParseMode.MARKDOWN)
+            await safe_reply_text(query.message, card, reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
     # 7. Store Donations filter
@@ -818,10 +858,10 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
             await query.answer("No donations at this store.", show_alert=True)
             return
         await query.answer()
-        lines = [f"🤝 **NGO Food Rescue Batches:**\n"]
+        lines = ["🤝 <b>NGO Food Rescue Batches:</b>\n"]
         for don in donations:
-            lines.append(f"• **{don['product_name']}** ({don['quantity']}x) -> {don['partner_name']} (Pickup: {don['pickup_deadline']})")
-        await query.message.reply_text("\n".join(lines), parse_mode=constants.ParseMode.MARKDOWN)
+            lines.append(f"• <b>{don['product_name']}</b> ({don['quantity']}x) ➔ {don['partner_name']} (Pickup: <code>{don['pickup_deadline']}</code>)")
+        await safe_reply_text(query.message, "\n".join(lines))
         return
 
     await query.answer("Unknown action.", show_alert=True)
@@ -863,8 +903,8 @@ async def chat_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     except Exception as exc:
         logger.error("Unexpected error in ask_store_copilot: %s", exc, exc_info=True)
         answer = (
-            "🤖 **Freshwise Store Copilot** *(Demo Fallback)*\n\n"
-            "An error occurred while answering your question. Please try again or use `/summary` / `/inventory`."
+            "🤖 <b>Freshwise Store Copilot</b> <i>(Demo Fallback)</i>\n\n"
+            "An error occurred while answering your question. Please try again or use /summary / /inventory."
         )
 
     await safe_reply_text(update, answer)
@@ -898,4 +938,3 @@ def register_handlers(application: Any) -> None:
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, chat_message_handler)
     )
-

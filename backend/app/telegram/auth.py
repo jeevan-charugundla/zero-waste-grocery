@@ -35,17 +35,17 @@ _AUTHORIZED_REGISTRY: dict[int, AuthorizedUser] = {}
 
 def get_authorized_user(telegram_user_id: int) -> AuthorizedUser | None:
     """
-    Check if a Telegram user ID is authorized via TELEGRAM_ALLOWED_USER_IDS.
+    Check if a Telegram user ID is authorized via TELEGRAM_ALLOWED_USER_IDS or runtime registry.
     If authorized, assigns access to the Freshwise store.
     """
-    settings = get_settings()
-
-    # Reject immediately if not in allowlist
-    if telegram_user_id not in settings.allowed_telegram_user_ids:
-        return None
-
     if telegram_user_id in _AUTHORIZED_REGISTRY:
         return _AUTHORIZED_REGISTRY[telegram_user_id]
+
+    settings = get_settings()
+
+    # Reject if not in allowlist
+    if telegram_user_id not in settings.allowed_telegram_user_ids:
+        return None
 
     # In demo mode (default), bind to demo store directly without blocking on Supabase
     store_id = DEMO_STORE["id"]
@@ -82,7 +82,9 @@ def get_authorized_user(telegram_user_id: int) -> AuthorizedUser | None:
 
 
 def is_authorized(telegram_user_id: int) -> bool:
-    """Return True if the Telegram user ID is in the allowlist."""
+    """Return True if the Telegram user ID is authorized."""
+    if telegram_user_id in _AUTHORIZED_REGISTRY:
+        return True
     settings = get_settings()
     return telegram_user_id in settings.allowed_telegram_user_ids
 

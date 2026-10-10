@@ -777,3 +777,65 @@ async def test_chat_message_handler_exception_resilience():
             assert "error occurred" in reply_content.lower()
 
 
+def test_clean_telegram_text_removes_random_stars_and_adds_emojis():
+    """Verify clean_telegram_text transforms messy LLM output into clean, star-free HTML."""
+    from app.telegram.formatter import clean_telegram_text, strip_all_tags
+
+    messy_input = (
+        "**Top Rescue Opportunities (DEMO Data)**\n\n"
+        "Here are the best deals to prioritize for immediate action at **Freshwise Central**:\n\n"
+        "**1. Baby Spinach 200g (Highest Urgency & Discount)**\n"
+        "* **Store:** Freshwise Whitefield\n"
+        "* **Deal:** ₹33.0 (40% off, was ₹55.0)\n"
+        "* **Qty Left:** 8\n"
+        "* **Expiry:** 2026-10-11 (1 day left)\n"
+        "* **Pickup:** Today, 02:00 PM – 09:30 PM\n"
+        "* **Action:** Highest discount and shortest shelf life.\n\n"
+        "**2. Whole Milk 1L (High Volume Urgency)**\n"
+        "* **Store:** Freshwise Central\n"
+        "* **Deal:** ₹51.0 (25% off, was ₹68.0)\n"
+        "* **Qty Left:** 14\n"
+        "* **Expiry:** 2026-10-11 (1 day left)\n"
+        "* **Pickup:** Today, 04:00 PM – 09:30 PM\n"
+        "* **Action:** Perishable dairy with 1 day left."
+    )
+
+    cleaned = clean_telegram_text(messy_input)
+
+    # 1. Zero random stars
+    assert "**" not in cleaned
+    assert "*" not in cleaned
+
+    # 2. Contains clean HTML tags
+    assert "<b>" in cleaned and "</b>" in cleaned
+
+    # 3. Numbered headers converted to emojis
+    assert "1️⃣ <b>Baby Spinach 200g" in cleaned
+    assert "2️⃣ <b>Whole Milk 1L" in cleaned
+
+    # 4. Bullet fields converted to emojis
+    assert "🏪 <b>Store:</b> Freshwise Whitefield" in cleaned
+    assert "💰 <b>Deal:</b> ₹33.0" in cleaned
+    assert "📦 <b>Qty:</b> 8" in cleaned
+    assert "⏰ <b>Expiry:</b> 2026-10-11" in cleaned
+    assert "🕒 <b>Pickup:</b> Today" in cleaned
+    assert "⚡ <b>Action:</b>" in cleaned
+
+    # 5. Plain text fallback has zero stars or HTML tags
+    plain = strip_all_tags(cleaned)
+    assert "<" not in plain and ">" not in plain
+    assert "*" not in plain
+
+
+def test_copilot_response_has_no_random_stars():
+    """Verify ask_store_copilot produces responses with zero raw markdown stars."""
+    from app.telegram.copilot_adapter import ask_store_copilot
+
+    ans, grounded = ask_store_copilot("What are the top rescue opportunities?", "demo-store")
+    assert grounded
+    assert "**" not in ans
+    assert "*" not in ans
+    assert "<b>" in ans
+
+
+
